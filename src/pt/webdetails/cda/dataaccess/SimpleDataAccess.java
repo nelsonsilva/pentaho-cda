@@ -234,9 +234,11 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
 
 
     final ParameterDataRow parameterDataRow;
+	final ParameterDataRow calcParameterDataRow;
     try
     {
       parameterDataRow = createParameterDataRowFromParameters(parameters);
+      calcParameterDataRow = createParameterDataRowFromParameters(parameters,true);
     }
     catch (InvalidParameterException e)
     {
@@ -285,8 +287,8 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
       //start timing query
       long beginTime = System.currentTimeMillis();
 
-      final TableModel tableModel = postProcessTableModel(performRawQuery(parameterDataRow));
-
+      // Use also calculated Parameteres
+      final TableModel tableModel = postProcessTableModel(performRawQuery(calcParameterDataRow));
       logIfDurationAboveThreshold(beginTime, getId(), getQuery(), parameters);
 
       // Copy the tableModel and cache it
@@ -344,14 +346,28 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
 
   private static ParameterDataRow createParameterDataRowFromParameters(final ArrayList<Parameter> parameters) throws InvalidParameterException
   {
+        return createParameterDataRowFromParameters(parameters,false);
+  }
 
+    private static ParameterDataRow createParameterDataRowFromParameters(final ArrayList<Parameter> parameters,boolean includeCalculated)  throws InvalidParameterException
+    {
     final ArrayList<String> names = new ArrayList<String>();
     final ArrayList<Object> values = new ArrayList<Object>();
 
     for (final Parameter parameter : parameters)
     {
+        if(!parameter.isCalculated()){
       names.add(parameter.getName());
       values.add(parameter.getValue());
+        }
+    }
+
+   for (final Parameter parameter : parameters)
+    {
+        if(parameter.isCalculated() && includeCalculated){
+            names.add(parameter.getName());
+            values.add(parameter.calculate(parameters));
+        }
     }
 
     final ParameterDataRow parameterDataRow = new ParameterDataRow(names.toArray(new String[]

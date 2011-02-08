@@ -1,10 +1,19 @@
 package pt.webdetails.cda.dataaccess;
 
+import java.io.File;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
+import org.mozilla.javascript.Context;
+import org.mozilla.javascript.ContextFactory;
+import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.ScriptableObject;
+import org.pentaho.platform.engine.core.system.PentahoSystem;
+import org.pentaho.platform.plugin.condition.javascript.RhinoScriptable;
+import org.pentaho.platform.util.FileHelper;
 import org.pentaho.reporting.libraries.base.util.CSVTokenizer;
 import org.pentaho.reporting.libraries.formula.DefaultFormulaContext;
 import org.pentaho.reporting.libraries.formula.Formula;
@@ -23,7 +32,7 @@ import pt.webdetails.cda.utils.Util;
 public class Parameter implements java.io.Serializable {
 
   private static final long serialVersionUID = 1L;
-  
+
   final static String DEFAULT_ARRAY_SEPERATOR = ";";
 
   private String name;
@@ -32,73 +41,91 @@ public class Parameter implements java.io.Serializable {
   private String pattern;
   private Object value;
   private Access access = Access.PUBLIC;
-  
+
   private String separator = DEFAULT_ARRAY_SEPERATOR;
-  
+
   public enum Access {
-  	PRIVATE("private"),
-  	PUBLIC("public");
-  	
-  	private String name;
-  	
-  	Access(String name){ this.name = name; }
-  	
-  	public static Access parse(String text){//TODO: -> valueOf
-  		for(Access type : Access.values()){
-  			if(text != null && type.name.equals(text.trim().toLowerCase())){
-  				return type;
-  			}
-  		}
-  		return PUBLIC;//default
-  	}
-  	public String toString(){ return this.name;}
+    PRIVATE("private"),
+    PUBLIC("public");
+
+    private String name;
+
+    Access(String name){ this.name = name; }
+
+    public static Access parse(String text){//TODO: -> valueOf
+      for(Access type : Access.values()){
+        if(text != null && type.name.equals(text.trim().toLowerCase())){
+          return type;
+        }
+      }
+      return PUBLIC;//default
+    }
+    public String toString(){ return this.name;}
   }
-  
+
   private final static String FORMULA_BEGIN = "${";
   private final static String FORMULA_END = "}";
-  
+  private final static String SCRIPT_BEGIN = "$js{";
+  private final static String SCRIPT_END = "}";
+
   private FormulaContext formulaContext;
   public void setFormulaContext(FormulaContext context){
-  	formulaContext = context;
+    formulaContext = context;
   }
-  
+
+  public boolean isCalculated(){
+    final Object objValue = value == null ? getDefaultValue() : value;
+
+    if(objValue instanceof String){//may be a string or a parsed value
+      final String strValue = (String) objValue;
+
+      return (strValue!= null && strValue.trim().startsWith(SCRIPT_BEGIN));
+    }
+    return false;
+  }
+
+  private String getScript() {
+    String strValue=this.getStringValue();
+    return Util.getContentsBetween(strValue, SCRIPT_BEGIN, SCRIPT_END);
+  }
+
   enum Type{
-  	
-  	STRING("String"),
-  	INTEGER("Integer"),
-  	NUMERIC("Numeric"),
-  	DATE("Date"),
+
+    STRING("String"),
+    INTEGER("Integer"),
+    NUMERIC("Numeric"),
+    DATE("Date"),
     STRING_ARRAY("StringArray"),
     INTEGER_ARRAY("IntegerArray"),
     NUMERIC_ARRAY("NumericArray"),
     DATE_ARRAY("DateArray");
-  	
-  	private String name;
-  	
-  	Type(String name){
-  		this.name = name;
-  	}
-  	
-  	public final String getName(){
-  		return name;
-  	}
-  	
-  	public String toString(){
-  		return name;
-  	}
-  	
-  	public boolean isArrayType(){
-  	  switch(this){
-  	    case STRING_ARRAY:
-  	    case INTEGER_ARRAY:
-  	    case NUMERIC_ARRAY:
-  	    case DATE_ARRAY:
-  	      return true;
-  	    default:
-  	      return false;
-  	  }
-  	}
-  	
+
+    private String name;
+
+    Type(String name){
+      this.name = name;
+    }
+
+    public final String getName(){
+      return name;
+    }
+
+    public String toString(){
+      return name;
+    }
+
+    public boolean isArrayType(){
+      switch(this){
+        case STRING_ARRAY:
+        case INTEGER_ARRAY:
+        case NUMERIC_ARRAY:
+        case DATE_ARRAY:
+          return true;
+        default:
+          return false;
+      }
+    }
+
     public static Type parse(String typeString) {// throws ParseException{ //TODO: -> valueOf
       for (Type type : Type.values()) {
         if (type.name.equals(typeString)) {
@@ -108,7 +135,7 @@ public class Parameter implements java.io.Serializable {
       // throw new ParseException(typeString + " is not recognized by " + Type.class.getCanonicalName(),0);
       return null;
     }
-  	
+
     public static Type inferTypeFromObject(Object obj) {
       if (obj != null) {
         if (Object[].class.isAssignableFrom(obj.getClass())) {
@@ -165,7 +192,7 @@ public class Parameter implements java.io.Serializable {
     this.name = name;
     this.value = value;
   }
-  
+
   public void inheritDefaults(Parameter defaultParameter){
     if(this.type == null) this.setType(defaultParameter.getType());
     if(this.type == Type.DATE || this.type == Type.DATE_ARRAY) this.setPattern(defaultParameter.getPattern());
@@ -181,9 +208,9 @@ public class Parameter implements java.io.Serializable {
       final String strValue = (String) objValue;
       //check if it is a formula
       if(strValue != null && strValue.trim().startsWith(FORMULA_BEGIN)){
-      	return processFormula(Util.getContentsBetween(strValue, FORMULA_BEGIN, FORMULA_END), this.formulaContext);
+        return processFormula(Util.getContentsBetween(strValue, FORMULA_BEGIN, FORMULA_END), this.formulaContext);
       }
-      
+
       Type valueType = getType();
       if(valueType == null){
         throw  new InvalidParameterException("Parameter type " + getType() + " unknown, can't continue",null);
@@ -201,7 +228,7 @@ public class Parameter implements java.io.Serializable {
    * @throws InvalidParameterException
    */
   private Object getValueFromString(final String localValue, Type valueType) throws InvalidParameterException {
-    
+
     switch(valueType){
       case STRING:
         return localValue;
@@ -228,19 +255,53 @@ public class Parameter implements java.io.Serializable {
       case NUMERIC_ARRAY:
         return parseToArray(localValue, Type.NUMERIC);
       default:
-         return localValue;
+        return localValue;
     }
   }
 
   private Object[] parseToArray(String arrayAsString, Type elementType) throws InvalidParameterException
-  {    
+  {
     CSVTokenizer tokenizer = new CSVTokenizer(arrayAsString, getSeparator());
-    
+
     ArrayList<Object> result = new ArrayList<Object>();
     while( tokenizer.hasMoreTokens()){
       result.add(getValueFromString(tokenizer.nextToken(), elementType));
     }
     return result.toArray();
+  }
+
+  protected Object convertWrappedJavaObject(final Object obj) {
+    if (obj instanceof org.mozilla.javascript.NativeJavaObject) {
+      return ((org.mozilla.javascript.NativeJavaObject) obj).unwrap();
+    } else {
+      return obj;
+    }
+  }
+
+  public Object calculate(List<Parameter> parameters) {
+    String fullPath= PentahoSystem.getApplicationContext().getSolutionPath(getScript());
+    String script= FileHelper.getStringFromFile(new File(fullPath));
+
+    Context cx = ContextFactory.getGlobal().enterContext();
+    ScriptableObject scriptable = new RhinoScriptable();
+    // initialize the standard javascript objects
+    Scriptable scope = cx.initStandardObjects(scriptable);
+
+
+    for (Parameter param : parameters)
+    {
+      if(!param.isCalculated()){
+        try {
+          ScriptableObject.putProperty(scope, param.getName(), Context.javaToJS(param.getValue(),scope));
+        } catch (InvalidParameterException e) {
+          e.printStackTrace();
+        }
+      }
+    }
+
+    Object res = cx.evaluateString(scope, script, "<cmd>", 1, null);
+    value = convertWrappedJavaObject(ScriptableObject.getProperty(scope,this.name));
+    return value;
   }
 
   private static Object processFormula(String localValue, FormulaContext formulaContext) throws InvalidParameterException {
@@ -252,7 +313,7 @@ public class Parameter implements java.io.Serializable {
       // evaluate
       Object result = formula.evaluate();
       if(result instanceof ArrayList){//TODO: this returns Object[] with no specific type
-          result = ((ArrayList) result).toArray();
+        result = ((ArrayList) result).toArray();
       }
       return result;
     } catch (org.pentaho.reporting.libraries.formula.parser.ParseException e) {
@@ -276,7 +337,7 @@ public class Parameter implements java.io.Serializable {
   {
     return type;
   }
-  
+
   public String getTypeAsString(){//TODO:temp
     return (type == null) ? null : type.getName();
   }
@@ -285,7 +346,7 @@ public class Parameter implements java.io.Serializable {
   {
     this.type = Type.parse(type);
   }
-  
+
   public void setType(final Type type){
     this.type = type;
   }
@@ -313,7 +374,7 @@ public class Parameter implements java.io.Serializable {
   public String getStringValue() {
     String separator = getSeparator();
     if(separator == null) separator = DEFAULT_ARRAY_SEPERATOR;
-      
+
     if (value == null) {
       if (getDefaultValue() != null) return getDefaultValue().toString();
       else return null;
@@ -339,24 +400,24 @@ public class Parameter implements java.io.Serializable {
   public void setStringValue(final String stringValue)
   {
     if(this.type == null){
-     //TODO: warn 
+      //TODO: warn
     }
     this.value = stringValue;
   }
-  
+
   public void setStringValue(final String stringValue, Type type){
     this.value = stringValue;//TODO: parse now
     this.type = type;
   }
-  
+
   public void setValue(final Object value){
     this.value = value;
   }
-  
+
   public Access getAccess(){
-  	return this.access;
+    return this.access;
   }
-  
+
   public void setSeparator(String separator){
     this.separator = separator;
   }
@@ -368,7 +429,7 @@ public class Parameter implements java.io.Serializable {
    * For debugging purposes
    */
   public String toString(){
-  	return getName() + "=" + getStringValue();
+    return getName() + "=" + getStringValue();
   }
 
 }
