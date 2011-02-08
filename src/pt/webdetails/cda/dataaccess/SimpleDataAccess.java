@@ -5,15 +5,14 @@ import java.io.Serializable;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineFactory;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
+import java.util.Properties;
+import javax.script.*;
 import javax.swing.table.TableModel;
 
 import net.sf.ehcache.Cache;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.velocity.VelocityContext;
 import org.dom4j.Element;
 import org.pentaho.platform.engine.core.system.PentahoSystem;
 import org.pentaho.reporting.engine.classic.core.ParameterDataRow;
@@ -177,6 +176,7 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
   private static final Log logger = LogFactory.getLog(SimpleDataAccess.class);
   protected String connectionId;
   protected String query;
+  protected boolean processedQuery=false;
   protected String templateEngine;
   private static final String QUERY_TIME_THRESHOLD_PROPERTY = "pt.webdetails.cda.QueryTimeThreshold";
   private static int queryTimeThreshold = getQueryTimeThresholdFromConfig(3600);//seconds
@@ -238,16 +238,6 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
       {
         parameter.setValue(parameter.getDefaultValue());
       }
-    }
-
-
-    try
-    {
-        processQueryTemplate();
-    }
-    catch (InvalidParameterException e)
-    {
-      throw new QueryException("Error parsing query ", e);
     }
 
     final ParameterDataRow parameterDataRow;
@@ -334,11 +324,15 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
     return tableModelCopy;
   }
 
-  private String processQueryTemplate() throws InvalidParameterException {
+  private String processQueryTemplate(String query) throws InvalidParameterException {
     ScriptEngineManager manager = new ScriptEngineManager();
-
+    String fullPath= PentahoSystem.getApplicationContext().getSolutionRootPath();
     ScriptEngine engine = manager.getEngineByName("velocity");
-
+    Properties props=new Properties();
+    props.setProperty("file.resource.loader.path",  fullPath);
+    props.setProperty("file.resource.loader.cache",  "false");
+    props.setProperty("velocimacro.library.autoreload",  "true");
+    engine.getContext().setAttribute("com.sun.script.velocity.properties",props, ScriptContext.ENGINE_SCOPE);
     for (final Parameter parameter : getParameters())
     {
       engine.put(parameter.getName(),parameter.getValue());
@@ -354,7 +348,7 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
       throw(new InvalidParameterException("failed to parse query",e));
     }
 
-    this.query=writer.toString();
+    query=writer.toString();
     logger.debug("VM Query: " + query);
     return query;
 
@@ -464,6 +458,14 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
 
   public String getQuery()
   {
+    if(!processedQuery) {
+      try {
+        query=processQueryTemplate(query);
+        processedQuery=true;
+      } catch (InvalidParameterException e) {
+        e.printStackTrace();  
+      }
+    }
     return query;
   }
 
