@@ -98,7 +98,8 @@ public class Parameter implements java.io.Serializable {
     STRING_ARRAY("StringArray"),
     INTEGER_ARRAY("IntegerArray"),
     NUMERIC_ARRAY("NumericArray"),
-    DATE_ARRAY("DateArray");
+    DATE_ARRAY("DateArray"),
+    RAW("Raw");
 
     private String name;
 

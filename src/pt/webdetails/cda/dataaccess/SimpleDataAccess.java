@@ -233,6 +233,19 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
     }
 
 
+    for (final Parameter parameter : rawParameters)
+    {
+        String txt="\\$\\{"+parameter.getName()+"\\}";
+        String val;
+        if(!parameter.isCalculated()){
+           val=parameter.getStringValue();
+        } else {
+           val=parameter.calculate(parameters).toString();
+        }
+
+        query=query.replaceAll(txt,val);
+    }
+
     final ParameterDataRow parameterDataRow;
 	final ParameterDataRow calcParameterDataRow;
     try

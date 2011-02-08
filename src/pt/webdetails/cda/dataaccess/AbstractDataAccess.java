@@ -57,6 +57,7 @@ public abstract class AbstractDataAccess implements DataAccess
   private boolean cache = false;
   private int cacheDuration = 3600;
   private ArrayList<Parameter> parameters;
+  protected ArrayList<Parameter> rawParameters;
   private OutputMode outputMode;
   private ArrayList<Integer> outputs;
   private ArrayList<ColumnDefinition> columnDefinitions;
@@ -85,6 +86,7 @@ public abstract class AbstractDataAccess implements DataAccess
     columnDefinitions = new ArrayList<ColumnDefinition>();
     outputs = new ArrayList<Integer>();
     parameters = new ArrayList<Parameter>();
+    rawParameters = new ArrayList<Parameter>();
     outputMode = OutputMode.INCLUDE;
 
     parseOptions(element);
@@ -115,18 +117,39 @@ public abstract class AbstractDataAccess implements DataAccess
    */
   public void setParameters(Collection<Parameter> params)
   {
+    ArrayList<Parameter> rawParameters=new ArrayList<Parameter>();
+    ArrayList<Parameter> parameters=new ArrayList<Parameter>();
+
+    for (final Parameter param : params)
+    {
+      if(param.getType().equals(Parameter.Type.RAW)) {
+        rawParameters.add(param);
+      } else {
+         parameters.add(param);
+      }
+    }
+      
     if (this.formulaContext != null)
     {
-      for (Parameter param : params)
+      for (Parameter param : parameters)
       {
         param.setFormulaContext(this.formulaContext);
       }
     }
 
     this.parameters.clear();
-    this.parameters.addAll(params);
+    this.parameters.addAll(parameters);
+    this.rawParameters.clear();
+    this.rawParameters.addAll(rawParameters);
   }
 
+  public void addParameter(Parameter param){
+     if(param.getType().equals(Parameter.Type.RAW)) {
+        rawParameters.add(param);
+      } else {
+         parameters.add(param);
+      }
+  }
 
   public void setFormulaContext(FormulaContext formulaContext)
   {
@@ -172,7 +195,7 @@ public abstract class AbstractDataAccess implements DataAccess
 
     for (final Element p : parameterNodes)
     {
-      parameters.add(new Parameter(p));
+      addParameter(new Parameter(p));
     }
 
     // Parse outputs
