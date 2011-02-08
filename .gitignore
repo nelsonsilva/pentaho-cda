@@ -1,0 +1,14 @@
+
+# /
+/.hg
+/dist
+/build
+/eclipse-bin
+/.settings
+/bin
+/dev-lib
+/lib
+/.override.properties.swp
+
+# /nbproject/
+/nbproject/private
