@@ -2,15 +2,23 @@ package pt.webdetails.cda.dataaccess;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.List;
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineFactory;
+import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 import javax.swing.table.TableModel;
 
 import net.sf.ehcache.Cache;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.dom4j.Element;
+import org.pentaho.platform.engine.core.system.PentahoSystem;
 import org.pentaho.reporting.engine.classic.core.ParameterDataRow;
 
+import org.springframework.ui.velocity.VelocityEngineFactory;
 import pt.webdetails.cda.CdaBoot;
 import pt.webdetails.cda.connections.Connection;
 import pt.webdetails.cda.connections.ConnectionCatalog;
@@ -100,7 +108,7 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
 
 
     private TableCacheKey(final Connection connection, final String query,
-            final ParameterDataRow parameterDataRow, final Object extraCacheKey)
+                          final ParameterDataRow parameterDataRow, final Object extraCacheKey)
     {
       if (connection == null)
       {
@@ -169,6 +177,7 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
   private static final Log logger = LogFactory.getLog(SimpleDataAccess.class);
   protected String connectionId;
   protected String query;
+  protected String templateEngine;
   private static final String QUERY_TIME_THRESHOLD_PROPERTY = "pt.webdetails.cda.QueryTimeThreshold";
   private static int queryTimeThreshold = getQueryTimeThresholdFromConfig(3600);//seconds
 
@@ -184,12 +193,11 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
     super(element);
     connectionId = element.attributeValue("connection");
     query = element.selectSingleNode("./Query").getText();
-
   }
 
 
   /**
-   * 
+   *
    * @param id
    * @param name
    * @param connectionId
@@ -233,21 +241,17 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
     }
 
 
-    for (final Parameter parameter : rawParameters)
+    try
     {
-        String txt="\\$\\{"+parameter.getName()+"\\}";
-        String val;
-        if(!parameter.isCalculated()){
-           val=parameter.getStringValue();
-        } else {
-           val=parameter.calculate(parameters).toString();
-        }
-
-        query=query.replaceAll(txt,val);
+        processQueryTemplate();
+    }
+    catch (InvalidParameterException e)
+    {
+      throw new QueryException("Error parsing query ", e);
     }
 
     final ParameterDataRow parameterDataRow;
-	final ParameterDataRow calcParameterDataRow;
+    final ParameterDataRow calcParameterDataRow;
     try
     {
       parameterDataRow = createParameterDataRowFromParameters(parameters);
@@ -330,7 +334,31 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
     return tableModelCopy;
   }
 
+  private String processQueryTemplate() throws InvalidParameterException {
+    ScriptEngineManager manager = new ScriptEngineManager();
 
+    ScriptEngine engine = manager.getEngineByName("velocity");
+
+    for (final Parameter parameter : getParameters())
+    {
+      engine.put(parameter.getName(),parameter.getValue());
+    }
+
+    StringWriter writer = new StringWriter();
+    engine.getContext().setWriter(writer);
+
+    //String fullPath= PentahoSystem.getApplicationContext().getSolutionPath(getScript());
+    try {
+      engine.eval(query);
+    } catch (ScriptException e) {
+      throw(new InvalidParameterException("failed to parse query",e));
+    }
+
+    this.query=writer.toString();
+    logger.debug("VM Query: " + query);
+    return query;
+
+  }
   /**
    * @param parameters
    * @param beginTime
@@ -359,33 +387,33 @@ public abstract class SimpleDataAccess extends AbstractDataAccess
 
   private static ParameterDataRow createParameterDataRowFromParameters(final ArrayList<Parameter> parameters) throws InvalidParameterException
   {
-        return createParameterDataRowFromParameters(parameters,false);
+    return createParameterDataRowFromParameters(parameters,false);
   }
 
-    private static ParameterDataRow createParameterDataRowFromParameters(final ArrayList<Parameter> parameters,boolean includeCalculated)  throws InvalidParameterException
-    {
+  private static ParameterDataRow createParameterDataRowFromParameters(final ArrayList<Parameter> parameters,boolean includeCalculated)  throws InvalidParameterException
+  {
     final ArrayList<String> names = new ArrayList<String>();
     final ArrayList<Object> values = new ArrayList<Object>();
 
     for (final Parameter parameter : parameters)
     {
-        if(!parameter.isCalculated()){
-      names.add(parameter.getName());
-      values.add(parameter.getValue());
-        }
+      if(!parameter.isCalculated()){
+        names.add(parameter.getName());
+        values.add(parameter.getValue());
+      }
     }
 
-   for (final Parameter parameter : parameters)
+    for (final Parameter parameter : parameters)
     {
-        if(parameter.isCalculated() && includeCalculated){
-            names.add(parameter.getName());
-            values.add(parameter.calculate(parameters));
-        }
+      if(parameter.isCalculated() && includeCalculated){
+        names.add(parameter.getName());
+        values.add(parameter.calculate(parameters));
+      }
     }
 
     final ParameterDataRow parameterDataRow = new ParameterDataRow(names.toArray(new String[]
-            {
-            }), values.toArray());
+        {
+        }), values.toArray());
 
     return parameterDataRow;
 
